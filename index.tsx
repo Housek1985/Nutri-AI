@@ -310,76 +310,72 @@ const analysisSchema: Schema = {
 
 // --- Components ---
 
-const ReportView: React.FC<{
-  history: AnalysisResult[];
-  onClose: () => void;
-  t: any;
-  colorTheme: ColorTheme;
-}> = ({ history, onClose, t, colorTheme }) => {
-  const totalCalories = history.reduce((acc, curr) => acc + curr.total.calories, 0);
-  const totalProtein = history.reduce((acc, curr) => acc + curr.total.protein, 0);
-  const totalCarbs = history.reduce((acc, curr) => acc + curr.total.carbs, 0);
-  const totalFat = history.reduce((acc, curr) => acc + curr.total.fat, 0);
+const ReportView = ({ history, onClose, t, colorTheme }: any) => {
+  const totalCals = history.reduce((sum: number, item: AnalysisResult) => sum + item.total.calories, 0);
 
   return (
-    <div className="fixed inset-0 z-50 bg-white dark:bg-gray-950 overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <h2 className="text-3xl font-black text-gray-900 dark:text-white">{t.reportTitle}</h2>
-          <button 
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <div className="bg-white min-h-screen text-black p-8 max-w-4xl mx-auto">
+      <div className="flex justify-between items-center mb-8 no-print">
+        <button onClick={onClose} className="text-gray-500 hover:text-black font-bold flex items-center gap-2">
+          ← {t.back}
+        </button>
+        <button 
+          onClick={() => window.print()}
+          className="bg-primary-600 text-white px-6 py-2 rounded-lg font-bold shadow-md hover:bg-primary-700 transition-colors"
+        >
+          {t.printReport}
+        </button>
+      </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-8">
-          <div className="p-5 rounded-2xl bg-primary-50 dark:bg-primary-900/20">
-            <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t.calories}</div>
-            <div className="text-2xl font-black text-primary-600 dark:text-primary-400">{Math.round(totalCalories)}</div>
-          </div>
-          <div className="p-5 rounded-2xl bg-blue-50 dark:bg-blue-900/20">
-            <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t.protein}</div>
-            <div className="text-2xl font-black text-blue-600 dark:text-blue-400">{Math.round(totalProtein)}g</div>
-          </div>
-          <div className="p-5 rounded-2xl bg-orange-50 dark:bg-orange-900/20">
-            <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t.carbs}</div>
-            <div className="text-2xl font-black text-orange-600 dark:text-orange-400">{Math.round(totalCarbs)}g</div>
-          </div>
-          <div className="p-5 rounded-2xl bg-purple-50 dark:bg-purple-900/20">
-            <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t.fat}</div>
-            <div className="text-2xl font-black text-purple-600 dark:text-purple-400">{Math.round(totalFat)}g</div>
-          </div>
-        </div>
+      <div className="mb-8 border-b-2 border-primary-500 pb-4">
+        <h1 className="text-4xl font-black text-gray-900 mb-2">{t.reportTitle}</h1>
+        <p className="text-gray-500">{new Date().toLocaleDateString()} • {history.length} {t.oneMeal}s</p>
+      </div>
 
-        <h3 className="text-xl font-bold mb-4">{t.history}</h3>
-        <div className="space-y-4">
-          {history.map((item, i) => (
-            <div key={i} className="p-4 border border-gray-100 dark:border-gray-800 rounded-xl flex justify-between items-center">
-              <div>
-                <div className="font-bold">{item.title}</div>
-                <div className="text-sm text-gray-500">{new Date(item.timestamp).toLocaleDateString()}</div>
-              </div>
-              <div className="font-mono font-bold text-primary-600">{item.total.calories} {t.calories}</div>
-            </div>
+      <table className="w-full text-left border-collapse">
+        <thead>
+          <tr className="border-b-2 border-gray-200">
+            <th className="py-3 font-bold text-sm uppercase text-gray-500">{t.date}</th>
+            <th className="py-3 font-bold text-sm uppercase text-gray-500">{t.meal}</th>
+            <th className="py-3 font-bold text-sm uppercase text-gray-500 text-right">{t.protein}</th>
+            <th className="py-3 font-bold text-sm uppercase text-gray-500 text-right">{t.carbs}</th>
+            <th className="py-3 font-bold text-sm uppercase text-gray-500 text-right">{t.fat}</th>
+            <th className="py-3 font-bold text-sm uppercase text-gray-500 text-right">{t.calories}</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {history.map((item: AnalysisResult, idx: number) => (
+            <tr key={idx} className="group hover:bg-gray-50">
+              <td className="py-4 text-sm text-gray-500">
+                {new Date(item.timestamp).toLocaleDateString()} <br/>
+                <span className="text-xs">{new Date(item.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+              </td>
+              <td className="py-4">
+                <div className="font-bold text-gray-900">{item.title}</div>
+                <div className="text-xs text-gray-500">{item.summary}</div>
+              </td>
+              <td className="py-4 text-right font-mono text-gray-700">{Math.round(item.total.protein)}g</td>
+              <td className="py-4 text-right font-mono text-gray-700">{Math.round(item.total.carbs)}g</td>
+              <td className="py-4 text-right font-mono text-gray-700">{Math.round(item.total.fat)}g</td>
+              <td className="py-4 text-right font-mono font-bold text-gray-900">{Math.round(item.total.calories)}</td>
+            </tr>
           ))}
-          {history.length === 0 && (
-            <div className="text-center text-gray-500 py-8">{t.noHistory}</div>
-          )}
-        </div>
+          <tr className="bg-gray-50 border-t-2 border-gray-200 font-bold text-lg">
+            <td colSpan={2} className="py-4 pl-4">{t.total}</td>
+            <td className="py-4 text-right text-blue-600">{Math.round(history.reduce((s:number, i:any)=>s+i.total.protein, 0))}g</td>
+            <td className="py-4 text-right text-yellow-600">{Math.round(history.reduce((s:number, i:any)=>s+i.total.carbs, 0))}g</td>
+            <td className="py-4 text-right text-rose-600">{Math.round(history.reduce((s:number, i:any)=>s+i.total.fat, 0))}g</td>
+            <td className="py-4 text-right">{Math.round(totalCals)}</td>
+          </tr>
+        </tbody>
+      </table>
 
-        <div className="mt-8 flex justify-center">
-            <button onClick={() => window.print()} className="px-6 py-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-full font-bold">
-                {t.printReport}
-            </button>
-        </div>
+      <div className="mt-12 text-center text-gray-400 text-sm no-print">
+        Generated by NutriAI
       </div>
     </div>
   );
-}
+};
 
 const App = () => {
   const [view, setView] = useState<'HOME' | 'SCAN' | 'RESULT' | 'SETTINGS' | 'REPORT' | 'BMI'>('HOME');
