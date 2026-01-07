@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nutrition AI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50: 'rgba(var(--color-primary-50), <alpha-value>)',
+              100: 'rgba(var(--color-primary-100), <alpha-value>)',
+              200: 'rgba(var(--color-primary-200), <alpha-value>)',
+              300: 'rgba(var(--color-primary-300), <alpha-value>)',
+              400: 'rgba(var(--color-primary-400), <alpha-value>)',
+              500: 'rgba(var(--color-primary-500), <alpha-value>)',
+              600: 'rgba(var(--color-primary-600), <alpha-value>)',
+              700: 'rgba(var(--color-primary-700), <alpha-value>)',
+              800: 'rgba(var(--color-primary-800), <alpha-value>)',
+              900: 'rgba(var(--color-primary-900), <alpha-value>)',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai",
+    "react": "https://esm.sh/react@19?dev",
+    "react-dom/client": "https://esm.sh/react-dom@19/client?dev",
+    "react-dom": "https://esm.sh/react-dom@19?dev",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      .print-only { display: block !important; }
+      body { background-color: white !important; color: black !important; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 dark:bg-black transition-colors duration-300">
+  <div id="root"></div>
+  <script type="module" src="index.tsx"></script>
+</body>
+</html>
