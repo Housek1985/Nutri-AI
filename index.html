@@ -1,15 +1,33 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="sl">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nutrition AI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>NutriAI - Tvoj Nutricionist</title>
+  
+  <!-- PWA & Mobile Meta Tags -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#10b981">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="NutriAI">
+  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/325/325159.png">
+
+  <!-- Font: Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       darkMode: 'class',
       theme: {
         extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+          },
           colors: {
             primary: {
               50: 'rgba(var(--color-primary-50), <alpha-value>)',
@@ -41,14 +59,65 @@
 }
 </script>
   <style>
+    body {
+        -webkit-tap-highlight-color: transparent;
+        overscroll-behavior-y: contain;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    
+    .ambient-bg {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: -1;
+        overflow: hidden;
+        pointer-events: none;
+    }
+    .blob {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.4;
+        animation: float 20s infinite ease-in-out;
+    }
+    .blob-1 {
+        top: -10%;
+        left: -10%;
+        width: 50vw;
+        height: 50vw;
+        background: rgba(var(--color-primary-300), 0.3);
+    }
+    .blob-2 {
+        bottom: -10%;
+        right: -10%;
+        width: 60vw;
+        height: 60vw;
+        background: rgba(var(--color-primary-500), 0.2);
+        animation-delay: -5s;
+    }
+
+    @keyframes float {
+        0% { transform: translate(0, 0) scale(1); }
+        33% { transform: translate(30px, 50px) scale(1.1); }
+        66% { transform: translate(-20px, 20px) scale(0.9); }
+        100% { transform: translate(0, 0) scale(1); }
+    }
+
+    button:active { transform: scale(0.96); }
+
     @media print {
-      .no-print { display: none !important; }
-      .print-only { display: block !important; }
-      body { background-color: white !important; color: black !important; }
+      .no-print, .ambient-bg { display: none !important; }
+      body { background: white !important; color: black !important; }
     }
   </style>
 </head>
-<body class="bg-gray-50 dark:bg-black transition-colors duration-300">
+<body class="bg-gray-50/50 dark:bg-black transition-colors duration-300">
+  <div class="ambient-bg">
+     <div class="blob blob-1"></div>
+     <div class="blob blob-2"></div>
+  </div>
   <div id="root"></div>
   <script type="module" src="index.tsx"></script>
 </body>

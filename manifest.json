@@ -1,0 +1,18 @@
+
+{
+  "name": "NutriAI - Pametna Prehrana",
+  "short_name": "NutriAI",
+  "description": "Multimodalni AI asistent za analizo hrane in receptov.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/325/325159.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

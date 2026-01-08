@@ -1,6 +1,18 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { GoogleGenAI, Type, Schema } from "@google/genai";
+
+// --- Service Worker Registration ---
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(registration => {
+      console.log('SW registered: ', registration);
+    }).catch(registrationError => {
+      console.log('SW registration failed: ', registrationError);
+    });
+  });
+}
 
 // --- Types & Interfaces ---
 
@@ -27,10 +39,17 @@ interface AnalysisResult {
   summary: string;
   items: NutritionItem[];
   total: TotalNutrition;
-  health_score: number; // 0-100
+  health_score: number;
   advice: string;
   timestamp: number;
   image?: string;
+}
+
+interface Recipe {
+  name: string;
+  ingredients: string[];
+  instructions: string[];
+  macros: { calories: number; protein: number; carbs: number; fat: number };
 }
 
 interface UserStats {
@@ -46,77 +65,10 @@ type ColorTheme = 'green' | 'blue' | 'purple' | 'orange';
 // --- Constants & Translations ---
 
 const THEME_COLORS: Record<ColorTheme, any> = {
-  green: {
-    50: '236, 253, 245',
-    100: '209, 250, 229',
-    200: '167, 243, 208',
-    300: '110, 231, 183',
-    400: '52, 211, 153',
-    500: '16, 185, 129',
-    600: '5, 150, 105',
-    700: '4, 120, 87',
-    800: '6, 95, 70',
-    900: '6, 78, 59',
-  },
-  blue: {
-    50: '239, 246, 255',
-    100: '219, 234, 254',
-    200: '191, 219, 254',
-    300: '147, 197, 253',
-    400: '96, 165, 250',
-    500: '59, 130, 246',
-    600: '37, 99, 235',
-    700: '29, 78, 216',
-    800: '30, 64, 175',
-    900: '30, 58, 138',
-  },
-  purple: {
-    50: '250, 245, 255',
-    100: '243, 232, 255',
-    200: '233, 213, 255',
-    300: '216, 180, 254',
-    400: '192, 132, 252',
-    500: '168, 85, 247',
-    600: '147, 51, 234',
-    700: '126, 34, 206',
-    800: '107, 33, 168',
-    900: '88, 28, 135',
-  },
-  orange: {
-    50: '255, 247, 237',
-    100: '255, 237, 213',
-    200: '254, 215, 170',
-    300: '253, 186, 116',
-    400: '251, 146, 60',
-    500: '249, 115, 22',
-    600: '234, 88, 12',
-    700: '194, 65, 12',
-    800: '154, 52, 18',
-    900: '124, 45, 18',
-  }
-};
-
-const QUOTES = {
-  sl: [
-    "Tvoje telo je tvoj tempelj.",
-    "Jej mavrico, počuti se sijajno.",
-    "Hrana je gorivo za življenje.",
-    "Majhni koraki, velike spremembe.",
-    "Zdravje je največje bogastvo.",
-    "Danes izberi zdravo.",
-    "Vsak obrok šteje.",
-    "Hrani svoje telo z ljubeznijo."
-  ],
-  en: [
-    "Your body is your temple.",
-    "Eat the rainbow, feel the glow.",
-    "Food is fuel for life.",
-    "Small steps, big changes.",
-    "Health is the greatest wealth.",
-    "Choose healthy today.",
-    "Every meal counts.",
-    "Nourish to flourish."
-  ]
+  green: { 50: '236, 253, 245', 100: '209, 250, 229', 200: '167, 243, 208', 300: '110, 231, 183', 400: '52, 211, 153', 500: '16, 185, 129', 600: '5, 150, 105', 700: '4, 120, 87', 800: '6, 95, 70', 900: '6, 78, 59' },
+  blue: { 50: '239, 246, 255', 100: '219, 234, 254', 200: '191, 219, 254', 300: '147, 197, 253', 400: '96, 165, 250', 500: '59, 130, 246', 600: '37, 99, 235', 700: '29, 78, 216', 800: '30, 64, 175', 900: '30, 58, 138' },
+  purple: { 50: '250, 245, 255', 100: '243, 232, 255', 200: '233, 213, 255', 300: '216, 180, 254', 400: '192, 132, 252', 500: '168, 85, 247', 600: '147, 51, 234', 700: '126, 34, 206', 800: '107, 33, 168', 900: '88, 28, 135' },
+  orange: { 50: '255, 247, 237', 100: '255, 237, 213', 200: '254, 215, 170', 300: '253, 186, 116', 400: '251, 146, 60', 500: '249, 115, 22', 600: '234, 88, 12', 700: '194, 65, 12', 800: '154, 52, 18', 900: '124, 45, 18' }
 };
 
 const TRANSLATIONS = {
@@ -135,62 +87,45 @@ const TRANSLATIONS = {
     fiber: "Vlaknine",
     sugar: "Sladkor",
     addPhoto: "Dodaj sliko",
-    takePhoto: "Slikaj ali naloži iz galerije",
-    manualEntryTitle: "Ročni vnos hrane",
-    whatDidYouEat: "Kaj si jedel?",
-    analyzeTextBtn: "Analiziraj vnos",
-    imageNotes: "Opombe k sliki (neobvezno)",
-    imageNotesPlaceholder: "Npr. 'Brez majoneze', 'Polovična porcija'...",
-    analyzing: "Analiziram hrano...",
-    cancel: "Prekliči",
-    calculate: "Izračunaj",
+    takePhoto: "Slikaj",
+    uploadFile: "Naloži iz galerije",
+    retake: "Ponovi",
+    cameraError: "Kamere ni mogoče zagnati.",
+    manualEntryTitle: "Ročni vnos",
+    analyzeTextBtn: "Analiziraj",
+    analyzing: "Analiziram...",
     calculating: "Računam...",
-    energy: "Energija",
-    macroRatio: "Makro Razmerje",
     ingredients: "Sestavine",
-    nutritionFacts: "Hranilna Vrednost",
-    servingSize: "Velikost porcije",
-    oneMeal: "1 Obrok",
-    totalFat: "Maščobe skupaj",
-    totalCarbs: "Ogljikovi hidrati",
-    dietaryFiber: "Prehranske vlaknine",
-    totalSugars: "Sladkorji",
-    proteinLabel: "Beljakovine",
-    adviceTitle: "💡 Nasvet nutricionista:",
-    analyzeNew: "Analiziraj nov obrok",
-    error: "Analiza ni uspela. Poskusite znova.",
-    emptyResponse: "Prazan odgovor",
-    manualPlaceholder: "Vpiši hrano (npr. 'Eno jabolko in kava z mlekom')...",
+    adviceTitle: "💡 Nasvet:",
+    analyzeNew: "Analiziraj novo",
+    error: "Napaka pri analizi.",
     settings: "Nastavitve",
     appearance: "Videz",
-    language: "Jezik",
-    data: "Podatki",
-    clearHistory: "Počisti vso zgodovino",
-    delete: "Izbriši",
-    themeLight: "Svetla",
-    themeDark: "Temna",
-    back: "Nazaj",
-    confirmDelete: "Ali res želiš izbrisati?",
-    colorTheme: "Barvna Tema",
-    goals: "Cilji & Preference",
-    dailyCalorieGoal: "Dnevni cilj (kcal)",
-    dietaryPreferences: "Prehranske preference",
-    dietaryPlaceholder: "npr. Vegan, Brez glutena, Keto...",
-    generateReport: "Ustvari Poročilo",
+    goals: "Cilji",
+    dailyCalorieGoal: "Cilj (kcal)",
+    dietaryPreferences: "Preference",
+    generateReport: "Poročilo",
     reportTitle: "Poročilo o Prehrani",
-    printReport: "Natisni / Shrani kot PDF",
+    printReport: "Natisni",
     date: "Datum",
     meal: "Obrok",
     total: "Skupaj",
-    tools: "Orodja",
     bmiCalculator: "ITM Kalkulator",
     height: "Višina (cm)",
     weight: "Teža (kg)",
-    yourBmi: "Vaš ITM",
-    underweight: "Podhranjenost",
-    normal: "Normalna teža",
-    overweight: "Prekomerna teža",
-    obese: "Debelost"
+    calculate: "Izračunaj",
+    yourBmi: "Tvoj ITM",
+    back: "Nazaj",
+    water: "Voda",
+    glasses: "koz.",
+    recipes: "Recepti",
+    generateRecipe: "Generiraj Recept",
+    ingredientsPlaceholder: "Npr. jabolko, omleta z gobami...",
+    manualPlaceholder: "Vpiši kaj si jedel (npr. 'Eno jabolko in kava z mlekom')...",
+    noRecipes: "Vnesi sestavine za recept.",
+    cookingInstructions: "Priprava",
+    confirmDelete: "Izbrišem zgodovino?",
+    clearHistory: "Počisti vse"
   },
   en: {
     appTitle: "Nutri",
@@ -198,7 +133,7 @@ const TRANSLATIONS = {
     scanBtn: "Scan Food",
     dailyIntake: "Daily Intake",
     history: "History",
-    noHistory: "No meals analyzed yet.",
+    noHistory: "No meals yet.",
     startNow: "Start now",
     calories: "kcal",
     protein: "Protein",
@@ -207,81 +142,62 @@ const TRANSLATIONS = {
     fiber: "Fiber",
     sugar: "Sugar",
     addPhoto: "Add Photo",
-    takePhoto: "Take a picture or upload",
+    takePhoto: "Capture",
+    uploadFile: "Upload",
+    retake: "Retake",
+    cameraError: "Camera error.",
     manualEntryTitle: "Manual Entry",
-    whatDidYouEat: "What did you eat?",
-    analyzeTextBtn: "Analyze Entry",
-    imageNotes: "Image Notes (Optional)",
-    imageNotesPlaceholder: "E.g. 'No mayo', 'Half portion'...",
-    analyzing: "Analyzing food...",
-    cancel: "Cancel",
-    calculate: "Calculate",
+    analyzeTextBtn: "Analyze",
+    analyzing: "Analyzing...",
     calculating: "Thinking...",
-    energy: "Energy",
-    macroRatio: "Macro Ratio",
     ingredients: "Ingredients",
-    nutritionFacts: "Nutrition Facts",
-    servingSize: "Serving Size",
-    oneMeal: "1 Meal",
-    totalFat: "Total Fat",
-    totalCarbs: "Total Carbohydrate",
-    dietaryFiber: "Dietary Fiber",
-    totalSugars: "Total Sugars",
-    proteinLabel: "Protein",
-    adviceTitle: "💡 Nutritionist Advice:",
-    analyzeNew: "Analyze New Meal",
-    error: "Analysis failed. Please try again.",
-    emptyResponse: "Empty response",
-    manualPlaceholder: "Enter food (e.g. 'One apple and coffee with milk')...",
+    adviceTitle: "💡 Advice:",
+    analyzeNew: "Analyze New",
+    error: "Analysis failed.",
     settings: "Settings",
     appearance: "Appearance",
-    language: "Language",
-    data: "Data",
-    clearHistory: "Clear All History",
-    delete: "Delete",
-    themeLight: "Light",
-    themeDark: "Dark",
-    back: "Back",
-    confirmDelete: "Are you sure?",
-    colorTheme: "Color Theme",
-    goals: "Goals & Preferences",
-    dailyCalorieGoal: "Daily Goal (kcal)",
-    dietaryPreferences: "Dietary Preferences",
-    dietaryPlaceholder: "e.g. Vegan, Gluten-free, Keto...",
-    generateReport: "Generate Report",
+    goals: "Goals",
+    dailyCalorieGoal: "Goal (kcal)",
+    dietaryPreferences: "Preferences",
+    generateReport: "Report",
     reportTitle: "Nutrition Report",
-    printReport: "Print / Save as PDF",
+    printReport: "Print",
     date: "Date",
     meal: "Meal",
     total: "Total",
-    tools: "Tools",
     bmiCalculator: "BMI Calculator",
     height: "Height (cm)",
     weight: "Weight (kg)",
+    calculate: "Calculate",
     yourBmi: "Your BMI",
-    underweight: "Underweight",
-    normal: "Normal weight",
-    overweight: "Overweight",
-    obese: "Obesity"
+    back: "Back",
+    water: "Water",
+    glasses: "glasses",
+    recipes: "Recipes",
+    generateRecipe: "Generate Recipe",
+    ingredientsPlaceholder: "E.g. apple, mushroom omelette...",
+    manualPlaceholder: "Type what you ate (e.g. 'One apple and latte')...",
+    noRecipes: "Enter ingredients for a recipe.",
+    cookingInstructions: "Instructions",
+    confirmDelete: "Clear history?",
+    clearHistory: "Clear All"
   }
 };
-
-// --- API Configuration ---
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const analysisSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    title: { type: Type.STRING, description: "Short title of the meal" },
-    summary: { type: Type.STRING, description: "Short summary of content" },
+    title: { type: Type.STRING },
+    summary: { type: Type.STRING },
     items: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
-          name: { type: Type.STRING, description: "Name of the food item" },
-          weight_g: { type: Type.NUMBER, description: "Estimated weight in grams" },
+          name: { type: Type.STRING },
+          weight_g: { type: Type.NUMBER },
           calories: { type: Type.NUMBER },
           protein: { type: Type.NUMBER },
           carbs: { type: Type.NUMBER },
@@ -302,724 +218,407 @@ const analysisSchema: Schema = {
       },
       required: ["calories", "protein", "carbs", "fat", "fiber", "sugar"]
     },
-    health_score: { type: Type.NUMBER, description: "Health score from 0 to 100" },
-    advice: { type: Type.STRING, description: "Brief advice to improve the meal" }
+    health_score: { type: Type.NUMBER },
+    advice: { type: Type.STRING }
   },
   required: ["title", "summary", "items", "total", "health_score", "advice"]
 };
 
-// --- Components ---
+const recipeSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    name: { type: Type.STRING },
+    ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+    instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+    macros: {
+      type: Type.OBJECT,
+      properties: {
+        calories: { type: Type.NUMBER },
+        protein: { type: Type.NUMBER },
+        carbs: { type: Type.NUMBER },
+        fat: { type: Type.NUMBER }
+      }
+    }
+  },
+  required: ["name", "ingredients", "instructions", "macros"]
+};
 
-const ReportView = ({ history, onClose, t, colorTheme }: any) => {
-  const totalCals = history.reduce((sum: number, item: AnalysisResult) => sum + item.total.calories, 0);
+// --- Helper Components ---
+
+const MacroRing = ({ label, value, color, target = 100, unit = "g" }: any) => {
+  const percentage = Math.min(100, (value / target) * 100);
+  const radius = 24;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (percentage / 100) * circumference;
 
   return (
-    <div className="bg-white min-h-screen text-black p-8 max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-8 no-print">
-        <button onClick={onClose} className="text-gray-500 hover:text-black font-bold flex items-center gap-2">
-          ← {t.back}
-        </button>
-        <button 
-          onClick={() => window.print()}
-          className="bg-primary-600 text-white px-6 py-2 rounded-lg font-bold shadow-md hover:bg-primary-700 transition-colors"
-        >
-          {t.printReport}
-        </button>
+    <div className="flex flex-col items-center p-3 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="relative w-12 h-12 mb-1">
+        <svg className="w-full h-full transform -rotate-90">
+          <circle cx="24" cy="24" r={radius} stroke="currentColor" strokeWidth="4" fill="transparent" className="text-gray-100 dark:text-gray-700" />
+          <circle cx="24" cy="24" r={radius} stroke="currentColor" strokeWidth="4" fill="transparent"
+            strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className={`transition-all duration-1000 ${color}`} />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-[10px] font-black">{Math.round(value)}</span>
+        </div>
       </div>
-
-      <div className="mb-8 border-b-2 border-primary-500 pb-4">
-        <h1 className="text-4xl font-black text-gray-900 mb-2">{t.reportTitle}</h1>
-        <p className="text-gray-500">{new Date().toLocaleDateString()} • {history.length} {t.oneMeal}s</p>
-      </div>
-
-      <table className="w-full text-left border-collapse">
-        <thead>
-          <tr className="border-b-2 border-gray-200">
-            <th className="py-3 font-bold text-sm uppercase text-gray-500">{t.date}</th>
-            <th className="py-3 font-bold text-sm uppercase text-gray-500">{t.meal}</th>
-            <th className="py-3 font-bold text-sm uppercase text-gray-500 text-right">{t.protein}</th>
-            <th className="py-3 font-bold text-sm uppercase text-gray-500 text-right">{t.carbs}</th>
-            <th className="py-3 font-bold text-sm uppercase text-gray-500 text-right">{t.fat}</th>
-            <th className="py-3 font-bold text-sm uppercase text-gray-500 text-right">{t.calories}</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {history.map((item: AnalysisResult, idx: number) => (
-            <tr key={idx} className="group hover:bg-gray-50">
-              <td className="py-4 text-sm text-gray-500">
-                {new Date(item.timestamp).toLocaleDateString()} <br/>
-                <span className="text-xs">{new Date(item.timestamp).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-              </td>
-              <td className="py-4">
-                <div className="font-bold text-gray-900">{item.title}</div>
-                <div className="text-xs text-gray-500">{item.summary}</div>
-              </td>
-              <td className="py-4 text-right font-mono text-gray-700">{Math.round(item.total.protein)}g</td>
-              <td className="py-4 text-right font-mono text-gray-700">{Math.round(item.total.carbs)}g</td>
-              <td className="py-4 text-right font-mono text-gray-700">{Math.round(item.total.fat)}g</td>
-              <td className="py-4 text-right font-mono font-bold text-gray-900">{Math.round(item.total.calories)}</td>
-            </tr>
-          ))}
-          <tr className="bg-gray-50 border-t-2 border-gray-200 font-bold text-lg">
-            <td colSpan={2} className="py-4 pl-4">{t.total}</td>
-            <td className="py-4 text-right text-blue-600">{Math.round(history.reduce((s:number, i:any)=>s+i.total.protein, 0))}g</td>
-            <td className="py-4 text-right text-yellow-600">{Math.round(history.reduce((s:number, i:any)=>s+i.total.carbs, 0))}g</td>
-            <td className="py-4 text-right text-rose-600">{Math.round(history.reduce((s:number, i:any)=>s+i.total.fat, 0))}g</td>
-            <td className="py-4 text-right">{Math.round(totalCals)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div className="mt-12 text-center text-gray-400 text-sm no-print">
-        Generated by NutriAI
-      </div>
+      <span className="text-[9px] font-bold text-gray-400 uppercase">{label}</span>
     </div>
   );
 };
 
+const LoadingOverlay = ({ t }: { t: any }) => (
+  <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-white/90 dark:bg-gray-900/90 backdrop-blur-md">
+    <div className="w-16 h-16 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mb-4"></div>
+    <h3 className="text-xl font-black">{t.analyzing}</h3>
+  </div>
+);
+
+const ReportDocument = ({ history, t }: any) => {
+  return (
+    <div id="report-content" className="bg-white text-black p-10 max-w-4xl mx-auto shadow-2xl print:shadow-none">
+      <div className="mb-8 border-b-2 border-primary-500 pb-4 flex justify-between items-end">
+        <div>
+          <h1 className="text-3xl font-black">{t.reportTitle}</h1>
+          <p className="text-gray-500">{new Date().toLocaleDateString()}</p>
+        </div>
+      </div>
+      <table className="w-full text-left border-collapse">
+        <thead>
+          <tr className="border-b">
+            <th className="py-2">{t.date}</th>
+            <th className="py-2">{t.meal}</th>
+            <th className="py-2 text-right">{t.calories}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {history.map((item: any, idx: number) => (
+            <tr key={idx} className="border-b">
+              <td className="py-2 text-sm text-gray-500">{new Date(item.timestamp).toLocaleDateString()}</td>
+              <td className="py-2 font-bold">{item.title}</td>
+              <td className="py-2 text-right font-bold">{Math.round(item.total.calories)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+const ReportView = ({ history, onClose, t }: any) => (
+  <div className="fixed inset-0 z-50 bg-gray-100 dark:bg-gray-900 overflow-y-auto">
+    <div className="sticky top-0 z-10 bg-white dark:bg-gray-900 p-4 flex justify-between items-center print:hidden border-b">
+      <button onClick={onClose} className="font-bold">← {t.back}</button>
+      <button onClick={() => window.print()} className="bg-primary-600 text-white px-6 py-2 rounded-xl font-bold">{t.printReport}</button>
+    </div>
+    <div className="p-4"><ReportDocument history={history} t={t} /></div>
+  </div>
+);
+
+// --- Main App Component ---
+
 const App = () => {
-  const [view, setView] = useState<'HOME' | 'SCAN' | 'RESULT' | 'SETTINGS' | 'REPORT' | 'BMI'>('HOME');
+  const [view, setView] = useState<'HOME' | 'SCAN' | 'RESULT' | 'SETTINGS' | 'REPORT' | 'RECIPES'>('HOME');
   const [history, setHistory] = useState<AnalysisResult[]>([]);
   const [currentAnalysis, setCurrentAnalysis] = useState<AnalysisResult | null>(null);
+  const [currentRecipe, setCurrentRecipe] = useState<Recipe | null>(null);
   const [inputImage, setInputImage] = useState<string | null>(null);
   const [description, setDescription] = useState("");
-  const [textInput, setTextInput] = useState("");
+  const [manualInput, setManualInput] = useState(""); // Ločeno stanje za ročni vnos
+  const [waterCount, setWaterCount] = useState(0);
+  const [recipeIngredients, setRecipeIngredients] = useState("");
   
-  // Settings State
   const [lang, setLang] = useState<Language>('sl');
   const [theme, setTheme] = useState<Theme>('light');
   const [colorTheme, setColorTheme] = useState<ColorTheme>('green');
   const [dailyGoal, setDailyGoal] = useState<number>(2000);
   const [dietaryPref, setDietaryPref] = useState<string>("");
-
-  // BMI/Stats State
   const [userStats, setUserStats] = useState<UserStats>({ height: "", weight: "", bmi: null });
-
-  // Motivational Quote State
-  const [quote, setQuote] = useState("");
-
-  // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isCameraActive, setIsCameraActive] = useState(false);
 
   const t = TRANSLATIONS[lang];
 
   useEffect(() => {
-    // Select a random quote when language changes or app mounts
-    const quotes = QUOTES[lang];
-    const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
-    setQuote(randomQuote);
-  }, [lang]);
-
-  useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [theme]);
-
-  // Apply Color Theme CSS Variables
-  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
     const colors = THEME_COLORS[colorTheme];
-    const root = document.documentElement;
     Object.keys(colors).forEach(shade => {
-      root.style.setProperty(`--color-primary-${shade}`, colors[shade]);
+      document.documentElement.style.setProperty(`--color-primary-${shade}`, colors[shade]);
     });
-  }, [colorTheme]);
+  }, [theme, colorTheme]);
 
-  const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  const toggleLang = () => setLang(prev => prev === 'sl' ? 'en' : 'sl');
-
-  const handleAnalyze = async (description: string, image: string | null) => {
-    if (!description.trim() && !image) return;
-    
+  const handleAnalyze = async (desc: string, image: string | null) => {
+    if (!desc.trim() && !image) return;
     setIsAnalyzing(true);
     setError(null);
-
     try {
       const parts: any[] = [];
-      let promptText = "";
-
-      if (image) {
-        const base64Data = image.split(',')[1];
-        parts.push({ inlineData: { data: base64Data, mimeType: "image/jpeg" } });
-        promptText = "Analyze this food image.";
-        if (description.trim()) {
-            promptText += ` The user provided this context/notes: "${description}".`;
-        }
-      } else {
-        promptText = `Analyze this food description: "${description}".`;
-      }
-
-      promptText += ` Identify items, estimate weight in grams (if not specified, infer from standard portion sizes), and calculate nutrition. Output strictly valid JSON according to the schema. 
-      IMPORTANT: ALL TEXT CONTENT (title, summary, advice, names) MUST BE IN ${lang === 'sl' ? 'SLOVENIAN (Slovenščina)' : 'ENGLISH'}.
-      User Dietary Preferences/Restrictions: "${dietaryPref}". Please consider this in the 'advice' section.`;
-
-      parts.push({ text: promptText });
-
+      if (image) parts.push({ inlineData: { data: image.split(',')[1], mimeType: "image/jpeg" } });
+      parts.push({ text: `Analyze food. Output JSON. Lang: ${lang}. Prefs: ${dietaryPref}. Desc: ${desc}` });
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: { parts: parts },
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: analysisSchema,
-          thinkingConfig: { thinkingBudget: 1024 },
-        }
+        contents: { parts },
+        config: { responseMimeType: "application/json", responseSchema: analysisSchema }
       });
+      const data = JSON.parse(response.text!);
+      const result = { ...data, timestamp: Date.now(), image: image || undefined };
+      setHistory(prev => [result, ...prev]);
+      setCurrentAnalysis(result);
+      setView('RESULT');
+      setManualInput(""); // Počisti vnos
+    } catch (e) { setError(t.error); } finally { setIsAnalyzing(false); }
+  };
 
-      if (response.text) {
-        const data = JSON.parse(response.text);
-        const result: AnalysisResult = {
-          ...data,
-          timestamp: Date.now(),
-          image: image || undefined
-        };
-        setHistory(prev => [result, ...prev]);
-        setCurrentAnalysis(result);
-        setView('RESULT');
-      } else {
-        throw new Error("Empty response");
+  const handleGenerateRecipe = async () => {
+    if (!recipeIngredients.trim()) return;
+    setIsAnalyzing(true);
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Create a healthy recipe using: ${recipeIngredients}. Lang: ${lang}. Target remaining calories for user.`,
+        config: { responseMimeType: "application/json", responseSchema: recipeSchema }
+      });
+      setCurrentRecipe(JSON.parse(response.text!));
+    } catch (e) { setError(t.error); } finally { setIsAnalyzing(false); }
+  };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setIsCameraActive(true);
       }
-    } catch (e) {
-      console.error(e);
-      setError(t.error);
-    } finally {
-      setIsAnalyzing(false);
+    } catch (err) { setError(t.cameraError); }
+  };
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      canvasRef.current.width = videoRef.current.videoWidth;
+      canvasRef.current.height = videoRef.current.videoHeight;
+      ctx?.drawImage(videoRef.current, 0, 0);
+      setInputImage(canvasRef.current.toDataURL('image/jpeg'));
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(t => t.stop());
+      setIsCameraActive(false);
     }
   };
 
-  const handleDeleteItem = (index: number) => {
-    setHistory(prev => prev.filter((_, i) => i !== index));
-  };
+  const todayHistory = history.filter(h => new Date(h.timestamp).toDateString() === new Date().toDateString());
+  const todayCals = todayHistory.reduce((s, h) => s + h.total.calories, 0);
+  const progress = Math.min(100, (todayCals / dailyGoal) * 100);
 
-  const handleClearHistory = () => {
-    setHistory([]);
-    setView('HOME');
-  };
-
-  const handleStartScan = () => {
-    setInputImage(null);
-    setDescription("");
-    setCurrentAnalysis(null);
-    setError(null);
-    setView('SCAN');
-  };
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setInputImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const calculateBMI = () => {
-    const h = parseFloat(userStats.height) / 100;
-    const w = parseFloat(userStats.weight);
-    if (h > 0 && w > 0) {
-      setUserStats(prev => ({ ...prev, bmi: w / (h * h) }));
-    }
-  };
-
-  if (view === 'REPORT') {
-    return (
-      <ReportView 
-        history={history} 
-        onClose={() => setView('SETTINGS')} 
-        t={t}
-        colorTheme={colorTheme}
-      />
-    );
-  }
-
-  const todayCalories = history
-    .filter(item => {
-      const itemDate = new Date(item.timestamp);
-      const today = new Date();
-      return itemDate.getDate() === today.getDate() && 
-             itemDate.getMonth() === today.getMonth() && 
-             itemDate.getFullYear() === today.getFullYear();
-    })
-    .reduce((sum, item) => sum + item.total.calories, 0);
-
-  const progressPercent = Math.min(100, (todayCalories / dailyGoal) * 100);
+  if (view === 'REPORT') return <ReportView history={history} onClose={() => setView('SETTINGS')} t={t} />;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100 font-sans pb-24 transition-colors duration-300">
-      {/* Top Navigation */}
-      <nav className="sticky top-0 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-800 transition-colors duration-300">
-        <div className="max-w-md mx-auto px-4 h-16 flex items-center justify-between">
-          <div 
-            className="flex items-center gap-3 cursor-pointer group" 
-            onClick={() => setView('HOME')}
+    <div className="min-h-screen text-gray-900 dark:text-gray-100 font-sans pb-24">
+      <nav className="sticky top-0 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b p-4 flex justify-between items-center transition-colors">
+        <h1 className="font-black text-2xl text-primary-600 cursor-pointer" onClick={() => setView('HOME')}>{t.appTitle}</h1>
+        <div className="flex gap-2 items-center">
+          <button 
+            onClick={() => setLang(l => l === 'sl' ? 'en' : 'sl')} 
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-[10px] font-bold uppercase transition-colors"
           >
-            {/* Improved Icon: Techy Apple/Leaf */}
-            <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-primary-500/30 group-hover:scale-105 group-hover:rotate-6 transition-all duration-300 relative overflow-hidden">
-               {/* Shine effect */}
-               <div className="absolute top-0 left-0 w-full h-1/2 bg-white/20 rounded-t-2xl pointer-events-none"></div>
-               
-               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 z-10 drop-shadow-sm">
-                 <path d="M12 2C9 2 7 3.5 7 6C7 8 8 9.5 9.5 10.5C8 12 7 14 7 16C7 19 9 21.5 12 21.5C15 21.5 17 19 17 16C17 14 16 12 14.5 10.5C16 9.5 17 8 17 6C17 3.5 15 2 12 2ZM12 4C13.5 4 14.5 4.8 14.5 6C14.5 7.2 13.5 8 12 8C10.5 8 9.5 7.2 9.5 6C9.5 4.8 10.5 4 12 4ZM12 20C10 20 8.5 18.5 8.5 16.5C8.5 14.5 10 13 12 13C14 13 15.5 14.5 15.5 16.5C15.5 18.5 14 20 12 20Z" fillOpacity="0.3" />
-                 <path d="M16 3C14.5 3 13.5 4 13.5 5.5C13.5 7 14.5 8 16 8C17.5 8 18.5 7 18.5 5.5C18.5 4 17.5 3 16 3Z" className="text-white" />
-                 <path d="M12 11C13.1 11 14 11.9 14 13V15.5C14 16.33 13.33 17 12.5 17C11.67 17 11 16.33 11 15.5V13C11 11.9 11.9 11 12 11Z" className="text-white" />
-                 <path d="M8 5C8.55 5 9 5.45 9 6C9 7.66 7.66 9 6 9C5.45 9 5 8.55 5 8C5 6.34 6.34 5 8 5Z" className="text-white" />
-               </svg>
-            </div>
-            
-            <div className="flex flex-col">
-              <span className="font-black text-xl leading-none tracking-tight text-gray-900 dark:text-white group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
-                {t.appTitle}<span className="text-primary-600 dark:text-primary-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">AI</span>
-              </span>
-              <span className="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-wider leading-none mt-1 truncate max-w-[120px] sm:max-w-[200px] opacity-80">{quote}</span>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-             {view === 'RESULT' || view === 'SETTINGS' || view === 'BMI' || view === 'SCAN' ? (
-              <button 
-                onClick={() => setView('HOME')}
-                className="text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 px-2 py-1 flex items-center gap-1"
-              >
-                <span className="text-lg">✕</span>
-                {t.close}
-              </button>
-            ) : (
-              <>
-                 <button 
-                  onClick={toggleLang}
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-xs font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                >
-                  {lang.toUpperCase()}
-                </button>
-                <button 
-                  onClick={toggleTheme}
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                >
-                  {theme === 'light' ? '🌙' : '☀️'}
-                </button>
-                <button 
-                  onClick={() => setView('SETTINGS')}
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-                  </svg>
-                </button>
-              </>
-            )}
-          </div>
+            {lang}
+          </button>
+          <button 
+            onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')} 
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 text-lg transition-colors"
+          >
+            {theme === 'light' ? "🌙" : "☀️"}
+          </button>
+          <button 
+            onClick={() => setView(v => v === 'SETTINGS' ? 'HOME' : 'SETTINGS')} 
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800 transition-colors"
+          >
+            ⚙️
+          </button>
         </div>
       </nav>
 
-      <main className="max-w-md mx-auto px-4 py-6">
+      <main className="max-w-md mx-auto p-4 space-y-6">
         {view === 'HOME' && (
-          <div className="space-y-6">
-            <div className="bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-sm border border-gray-100 dark:border-gray-800">
-              <div className="flex justify-between items-end mb-4">
+          <>
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-[2.5rem] shadow-xl border border-primary-100">
+              <div className="flex justify-between items-end mb-2">
                 <div>
-                   <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide">{t.dailyIntake}</h2>
-                   <div className="text-3xl font-black mt-1 text-gray-900 dark:text-white">
-                      {Math.round(todayCalories)} <span className="text-lg text-gray-400 font-medium">/ {dailyGoal}</span>
-                   </div>
+                  <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t.dailyIntake}</h2>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-4xl font-black">{Math.round(todayCals)}</span>
+                    <span className="text-sm text-gray-400">/ {dailyGoal} kcal</span>
+                  </div>
                 </div>
-                <div className="text-right">
-                   <div className="text-xs font-bold text-primary-600 mb-1">{Math.round(progressPercent)}%</div>
-                </div>
+                <div className="text-primary-600 font-black">{Math.round(progress)}%</div>
               </div>
-              <div className="w-full h-3 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-gradient-to-r from-primary-400 to-primary-600 transition-all duration-1000 ease-out"
-                  style={{ width: `${progressPercent}%` }}
-                ></div>
+              <div className="w-full h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-full bg-primary-600 transition-all duration-1000" style={{ width: `${progress}%` }}></div>
+              </div>
+              <div className="grid grid-cols-4 gap-2 mt-6">
+                <MacroRing label={t.protein} value={todayHistory.reduce((s, h) => s + h.total.protein, 0)} color="text-blue-500" target={150} />
+                <MacroRing label={t.carbs} value={todayHistory.reduce((s, h) => s + h.total.carbs, 0)} color="text-orange-500" target={250} />
+                <MacroRing label={t.fat} value={todayHistory.reduce((s, h) => s + h.total.fat, 0)} color="text-yellow-500" target={70} />
+                <MacroRing label={t.fiber} value={todayHistory.reduce((s, h) => s + h.total.fiber, 0)} color="text-green-500" target={30} />
               </div>
             </div>
 
-            {/* Manual Entry Section */}
-            <div className="bg-white dark:bg-gray-900 rounded-3xl p-5 shadow-sm border border-gray-100 dark:border-gray-800 relative overflow-hidden transition-colors">
-                <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-bl from-primary-100 to-transparent dark:from-primary-900/20 rounded-bl-full -mr-4 -mt-4"></div>
-                <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-3">{t.manualEntryTitle}</h2>
-                <div className="flex flex-col gap-3">
-                  <textarea 
-                    value={textInput}
-                    onChange={(e) => setTextInput(e.target.value)}
-                    placeholder={t.manualPlaceholder}
-                    className="w-full bg-gray-50 dark:bg-gray-800 rounded-xl p-3 text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500/50 resize-none text-base transition-all h-24"
-                  />
+            {/* Water Tracker */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-[2rem] flex items-center justify-between">
+              <div>
+                <h3 className="font-black text-blue-600">{t.water}</h3>
+                <p className="text-sm text-blue-400">{waterCount} {t.glasses} ({(waterCount * 0.25).toFixed(1)}L)</p>
+              </div>
+              <div className="flex items-center gap-4">
+                <button onClick={() => setWaterCount(Math.max(0, waterCount - 1))} className="w-10 h-10 rounded-full bg-white dark:bg-gray-800 shadow-md font-bold">-</button>
+                <div className="relative w-8 h-12 border-2 border-blue-400 rounded-md overflow-hidden bg-white/50">
+                   <div className="absolute bottom-0 w-full bg-blue-400 transition-all duration-500" style={{ height: `${Math.min(100, (waterCount / 8) * 100)}%` }}></div>
+                </div>
+                <button onClick={() => setWaterCount(waterCount + 1)} className="w-10 h-10 rounded-full bg-blue-600 text-white shadow-lg font-bold">+</button>
+              </div>
+            </div>
+
+            {/* Ročni vnos hrane */}
+            <div className="bg-white dark:bg-gray-800 p-5 rounded-[2rem] shadow-sm border border-gray-100 dark:border-gray-700">
+               <h3 className="font-black mb-3 text-sm uppercase tracking-wider text-gray-400">{t.manualEntryTitle}</h3>
+               <textarea 
+                  value={manualInput}
+                  onChange={(e) => setManualInput(e.target.value)}
+                  placeholder={t.manualPlaceholder}
+                  className="w-full p-4 rounded-2xl bg-gray-50 dark:bg-gray-900 border-none focus:ring-2 focus:ring-primary-500 transition-all min-h-[80px] text-sm resize-none"
+               />
+               <div className="mt-3 flex justify-end">
                   <button 
-                    onClick={() => {
-                        if(textInput.trim()) {
-                            handleAnalyze(textInput, null);
-                            setTextInput("");
-                        }
-                    }}
-                    disabled={!textInput.trim()}
-                    className="self-end px-5 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold text-sm shadow-md disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 transition-transform"
+                    disabled={!manualInput.trim() || isAnalyzing}
+                    onClick={() => handleAnalyze(manualInput, null)}
+                    className="px-6 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-full font-bold text-sm shadow-md disabled:opacity-50 active:scale-95 transition-transform"
                   >
                     {t.analyzeTextBtn}
                   </button>
-                </div>
+               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                 onClick={handleStartScan}
-                 className="col-span-2 p-4 bg-primary-600 hover:bg-primary-700 text-white rounded-2xl shadow-lg shadow-primary-500/30 flex items-center justify-center gap-2 font-bold transition-all transform hover:scale-[1.02]"
-              >
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                 </svg>
-                 {t.scanBtn}
-              </button>
+            <div className="grid grid-cols-2 gap-4">
+               <button onClick={() => setView('SCAN')} className="p-6 bg-primary-600 text-white rounded-3xl font-black text-lg shadow-lg active:scale-95 transition-transform">📸 {t.scanBtn}</button>
+               <button onClick={() => setView('RECIPES')} className="p-6 bg-gray-900 dark:bg-white dark:text-gray-900 text-white rounded-3xl font-black text-lg shadow-lg active:scale-95 transition-transform">🥗 {t.recipes}</button>
             </div>
 
             <div className="space-y-4">
-               <h3 className="font-bold text-lg text-gray-900 dark:text-white">{t.history}</h3>
-               {history.length === 0 ? (
-                 <div className="text-center py-10 text-gray-400 bg-white dark:bg-gray-900 rounded-3xl border border-dashed border-gray-200 dark:border-gray-800">
-                    <p>{t.noHistory}</p>
-                    <button onClick={handleStartScan} className="mt-2 text-primary-600 font-bold text-sm">{t.startNow}</button>
+               <h3 className="font-bold text-lg">{t.history}</h3>
+               {history.length === 0 ? <p className="text-center text-gray-400 py-10">{t.noHistory}</p> : history.slice(0, 5).map((h, i) => (
+                 <div key={i} className="bg-white dark:bg-gray-800 p-4 rounded-2xl flex items-center gap-4 shadow-sm active:scale-[0.98] transition-transform cursor-pointer" onClick={() => { setCurrentAnalysis(h); setView('RESULT'); }}>
+                    <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center text-2xl overflow-hidden">
+                        {h.image ? <img src={h.image} className="w-full h-full object-cover" /> : "🍽️"}
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-bold truncate max-w-[180px]">{h.title}</div>
+                      <div className="text-xs text-gray-500">{Math.round(h.total.calories)} kcal • Score: {h.health_score}</div>
+                    </div>
                  </div>
-               ) : (
-                 history.map((item, idx) => (
-                   <div key={idx} className="bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 flex items-center gap-4 hover:shadow-md transition-shadow cursor-pointer" onClick={() => { setCurrentAnalysis(item); setView('RESULT'); }}>
-                      {item.image ? (
-                        <div className="w-16 h-16 rounded-xl bg-gray-100 overflow-hidden flex-shrink-0">
-                           <img src={item.image} alt={item.title} className="w-full h-full object-cover" />
-                        </div>
-                      ) : (
-                        <div className="w-16 h-16 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0 text-2xl">
-                          🍽️
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                         <h4 className="font-bold text-gray-900 dark:text-white truncate">{item.title}</h4>
-                         <p className="text-xs text-gray-500 truncate">{item.summary}</p>
-                         <div className="flex gap-2 mt-1">
-                            <span className="text-xs font-medium text-primary-600 bg-primary-50 dark:bg-primary-900/20 px-2 py-0.5 rounded-full">
-                               {Math.round(item.total.calories)} {t.calories}
-                            </span>
-                            <span className="text-xs font-medium text-green-600 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full">
-                               {item.health_score}/100
-                            </span>
-                         </div>
-                      </div>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); handleDeleteItem(idx); }}
-                        className="p-2 text-gray-300 hover:text-red-500 transition-colors"
-                      >
-                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                           <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                         </svg>
-                      </button>
-                   </div>
-                 ))
-               )}
+               ))}
             </div>
+          </>
+        )}
+
+        {view === 'RECIPES' && (
+          <div className="space-y-6">
+            <button onClick={() => setView('HOME')} className="font-bold">← {t.back}</button>
+            <h2 className="text-2xl font-black">{t.recipes}</h2>
+            <textarea value={recipeIngredients} onChange={(e) => setRecipeIngredients(e.target.value)} placeholder={t.ingredientsPlaceholder} className="w-full p-4 rounded-2xl bg-gray-100 dark:bg-gray-800 min-h-[100px]" />
+            <button onClick={handleGenerateRecipe} className="w-full py-4 bg-primary-600 text-white rounded-2xl font-black">{t.generateRecipe}</button>
+            
+            {currentRecipe && (
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl space-y-4">
+                <h3 className="text-xl font-black">{currentRecipe.name}</h3>
+                <div className="grid grid-cols-4 gap-2 text-[10px] font-bold text-center">
+                   <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg">{currentRecipe.macros.calories} kcal</div>
+                   <div className="bg-blue-100 dark:bg-blue-900/30 p-2 rounded-lg">{currentRecipe.macros.protein}g P</div>
+                   <div className="bg-orange-100 dark:bg-orange-900/30 p-2 rounded-lg">{currentRecipe.macros.carbs}g C</div>
+                   <div className="bg-yellow-100 dark:bg-yellow-900/30 p-2 rounded-lg">{currentRecipe.macros.fat}g F</div>
+                </div>
+                <div className="space-y-2">
+                   <h4 className="font-bold">{t.ingredients}</h4>
+                   <ul className="list-disc list-inside text-sm">{currentRecipe.ingredients.map((ing, i) => <li key={i}>{ing}</li>)}</ul>
+                </div>
+                <div className="space-y-2">
+                   <h4 className="font-bold">{t.cookingInstructions}</h4>
+                   <ol className="list-decimal list-inside text-sm space-y-1">{currentRecipe.instructions.map((ins, i) => <li key={i}>{ins}</li>)}</ol>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {view === 'SCAN' && (
           <div className="space-y-6">
             <h2 className="text-2xl font-black">{t.addPhoto}</h2>
-            
-            <div className="relative group">
-              {inputImage ? (
-                 <div className="relative rounded-3xl overflow-hidden shadow-lg aspect-square">
-                    <img src={inputImage} alt="Preview" className="w-full h-full object-cover" />
-                    <button 
-                      onClick={() => setInputImage(null)}
-                      className="absolute top-4 right-4 bg-black/50 text-white p-2 rounded-full hover:bg-black/70 backdrop-blur-sm"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                      </svg>
-                    </button>
-                 </div>
-              ) : (
-                <label className="block w-full aspect-square rounded-3xl border-2 border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex flex-col items-center justify-center cursor-pointer hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-gray-800 transition-all">
-                  <div className="w-16 h-16 rounded-full bg-primary-100 dark:bg-gray-700 flex items-center justify-center mb-4 text-primary-600 dark:text-primary-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                  </div>
-                  <span className="font-bold text-gray-500">{t.takePhoto}</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                </label>
+            <div className="aspect-square bg-black rounded-3xl overflow-hidden relative shadow-2xl">
+              {inputImage ? <img src={inputImage} className="w-full h-full object-cover" /> : (
+                <>
+                  <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+                  <canvas ref={canvasRef} className="hidden" />
+                  {!isCameraActive && <button onClick={startCamera} className="absolute inset-0 m-auto w-20 h-20 bg-white/20 rounded-full flex items-center justify-center text-4xl">📸</button>}
+                  {isCameraActive && <button onClick={capturePhoto} className="absolute bottom-8 left-1/2 -translate-x-1/2 w-20 h-20 border-4 border-white rounded-full flex items-center justify-center"><div className="w-16 h-16 bg-white rounded-full"></div></button>}
+                </>
               )}
             </div>
-
-            <div>
-               <label className="block font-bold mb-2 ml-1">{t.imageNotes}</label>
-               <textarea 
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder={inputImage ? t.imageNotesPlaceholder : t.manualPlaceholder}
-                  className="w-full p-4 rounded-2xl bg-gray-100 dark:bg-gray-800 border-none focus:ring-2 focus:ring-primary-500 min-h-[100px] resize-none"
-               />
-            </div>
-
-            {error && (
-              <div className="p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm font-medium">
-                {error}
-              </div>
-            )}
-
-            <button 
-               onClick={() => handleAnalyze(description, inputImage)}
-               disabled={isAnalyzing || (!inputImage && !description.trim())}
-               className={`w-full py-4 rounded-xl font-black text-lg shadow-lg flex items-center justify-center gap-2 transition-all ${
-                 isAnalyzing || (!inputImage && !description.trim()) 
-                 ? 'bg-gray-200 text-gray-400 dark:bg-gray-800 dark:text-gray-600' 
-                 : 'bg-primary-600 text-white hover:bg-primary-700 shadow-primary-500/30'
-               }`}
-            >
-               {isAnalyzing ? (
-                 <>
-                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                   {t.analyzing}
-                 </>
-               ) : (
-                 t.analyzeTextBtn
-               )}
-            </button>
+            {inputImage && <button onClick={() => setInputImage(null)} className="w-full py-2 font-bold text-primary-600">{t.retake}</button>}
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t.ingredientsPlaceholder} className="w-full p-4 rounded-2xl bg-gray-100 dark:bg-gray-800" />
+            <button onClick={() => handleAnalyze(description, inputImage)} className="w-full py-4 bg-primary-600 text-white rounded-2xl font-black">{t.analyzeTextBtn}</button>
           </div>
         )}
 
         {view === 'RESULT' && currentAnalysis && (
-          <div className="space-y-6 animate-fadeIn">
-            <div className="bg-white dark:bg-gray-900 rounded-3xl overflow-hidden shadow-sm border border-gray-100 dark:border-gray-800">
-               {currentAnalysis.image && (
-                 <div className="h-48 overflow-hidden relative">
-                    <img src={currentAnalysis.image} alt="Food" className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-6">
-                        <h2 className="text-2xl font-black text-white">{currentAnalysis.title}</h2>
-                    </div>
-                 </div>
-               )}
-               {!currentAnalysis.image && (
-                 <div className="p-6 border-b border-gray-100 dark:border-gray-800">
+          <div className="space-y-6">
+            <div className="bg-white dark:bg-gray-800 rounded-3xl overflow-hidden shadow-sm">
+               {currentAnalysis.image && <img src={currentAnalysis.image} className="w-full h-48 object-cover" />}
+               <div className="p-6 space-y-6">
+                  <div className="flex justify-between items-center">
                     <h2 className="text-2xl font-black">{currentAnalysis.title}</h2>
-                 </div>
-               )}
-               
-               <div className="p-6">
-                 <div className="flex items-center justify-between mb-6">
-                    <div className="flex flex-col">
-                       <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t.health_score}</span>
-                       <span className={`text-4xl font-black ${
-                          currentAnalysis.health_score >= 80 ? 'text-green-500' :
-                          currentAnalysis.health_score >= 50 ? 'text-yellow-500' : 'text-red-500'
-                       }`}>
-                          {currentAnalysis.health_score}
-                       </span>
-                    </div>
-                    <div className="text-right">
-                       <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">{t.total} {t.calories}</div>
-                       <div className="text-3xl font-black text-gray-900 dark:text-white">
-                          {Math.round(currentAnalysis.total.calories)}
-                       </div>
-                    </div>
-                 </div>
-
-                 {/* Macros */}
-                 <div className="grid grid-cols-3 gap-2 mb-6">
-                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl text-center">
-                       <div className="text-blue-600 dark:text-blue-400 font-black text-xl">{Math.round(currentAnalysis.total.protein)}g</div>
-                       <div className="text-xs text-blue-400 dark:text-blue-300 font-bold uppercase">{t.proteinLabel}</div>
-                    </div>
-                    <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl text-center">
-                       <div className="text-orange-600 dark:text-orange-400 font-black text-xl">{Math.round(currentAnalysis.total.carbs)}g</div>
-                       <div className="text-xs text-orange-400 dark:text-orange-300 font-bold uppercase">{t.carbs}</div>
-                    </div>
-                    <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl text-center">
-                       <div className="text-yellow-600 dark:text-yellow-400 font-black text-xl">{Math.round(currentAnalysis.total.fat)}g</div>
-                       <div className="text-xs text-yellow-400 dark:text-yellow-300 font-bold uppercase">{t.fat}</div>
-                    </div>
-                 </div>
-
-                 <div className="space-y-4">
-                    <h3 className="font-bold text-lg">{t.ingredients}</h3>
-                    {currentAnalysis.items.map((item, idx) => (
-                       <div key={idx} className="flex justify-between items-center py-2 border-b border-gray-50 dark:border-gray-800 last:border-0">
-                          <div>
-                             <div className="font-medium text-gray-900 dark:text-gray-200">{item.name}</div>
-                             <div className="text-xs text-gray-500">{item.weight_g}g</div>
-                          </div>
-                          <div className="font-mono text-sm text-gray-600 dark:text-gray-400">{item.calories} {t.calories}</div>
-                       </div>
-                    ))}
-                 </div>
-               </div>
-               
-               <div className="bg-primary-50 dark:bg-primary-900/20 p-6 border-t border-primary-100 dark:border-primary-900/30">
-                  <h3 className="text-primary-800 dark:text-primary-300 font-bold flex items-center gap-2 mb-2">
-                     {t.adviceTitle}
-                  </h3>
-                  <p className="text-primary-700 dark:text-primary-200 text-sm leading-relaxed">
-                     {currentAnalysis.advice}
-                  </p>
+                    <div className="text-2xl font-black text-primary-600">{currentAnalysis.health_score}</div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl text-center"><div className="font-black">{Math.round(currentAnalysis.total.protein)}g</div><div className="text-[10px] uppercase">{t.protein}</div></div>
+                    <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-xl text-center"><div className="font-black">{Math.round(currentAnalysis.total.carbs)}g</div><div className="text-[10px] uppercase">{t.carbs}</div></div>
+                    <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl text-center"><div className="font-black">{Math.round(currentAnalysis.total.fat)}g</div><div className="text-[10px] uppercase">{t.fat}</div></div>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="font-bold">{t.ingredients}</h3>
+                    {currentAnalysis.items.map((it, i) => <div key={i} className="flex justify-between text-sm border-b pb-1"><span>{it.name}</span><span>{it.calories} kcal</span></div>)}
+                  </div>
+                  <div className="bg-primary-50 dark:bg-primary-900/20 p-4 rounded-xl text-sm leading-relaxed"><strong>{t.adviceTitle}</strong> {currentAnalysis.advice}</div>
                </div>
             </div>
-            
-            <button 
-               onClick={handleStartScan}
-               className="w-full py-4 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-xl font-bold shadow-lg"
-            >
-               {t.analyzeNew}
-            </button>
+            <button onClick={() => setView('HOME')} className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black">{t.analyzeNew}</button>
           </div>
         )}
 
         {view === 'SETTINGS' && (
           <div className="space-y-6">
             <h2 className="text-2xl font-black">{t.settings}</h2>
-
-            {/* Profile / Goals Section */}
-            <div className="space-y-4">
-               <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider">{t.goals}</h3>
-               
-               <div className="p-4 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
-                  <label className="block text-sm font-bold mb-2">{t.dailyCalorieGoal}</label>
-                  <input 
-                    type="number" 
-                    value={dailyGoal}
-                    onChange={(e) => setDailyGoal(Number(e.target.value))}
-                    className="w-full p-2 bg-gray-100 dark:bg-gray-800 rounded-lg"
-                  />
-               </div>
-
-               <div className="p-4 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
-                  <label className="block text-sm font-bold mb-2">{t.dietaryPreferences}</label>
-                  <input 
-                    type="text" 
-                    value={dietaryPref}
-                    onChange={(e) => setDietaryPref(e.target.value)}
-                    placeholder={t.dietaryPlaceholder}
-                    className="w-full p-2 bg-gray-100 dark:bg-gray-800 rounded-lg"
-                  />
-               </div>
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl space-y-4">
+              <div className="flex justify-between items-center"><label>{t.appearance}</label><span className="text-sm font-bold text-gray-400 uppercase">{theme}</span></div>
+              <div className="flex gap-2">{(['green', 'blue', 'purple', 'orange'] as ColorTheme[]).map(c => <button key={c} onClick={() => setColorTheme(c)} className={`w-8 h-8 rounded-full ${colorTheme === c ? 'ring-2 ring-black dark:ring-white' : ''}`} style={{ backgroundColor: THEME_COLORS[c][500] }} />)}</div>
+              <div><label className="block text-sm font-bold mb-1">{t.dailyCalorieGoal}</label><input type="number" value={dailyGoal} onChange={(e) => setDailyGoal(Number(e.target.value))} className="w-full p-3 rounded-xl bg-gray-50 dark:bg-gray-700" /></div>
+              <div><label className="block text-sm font-bold mb-1">{t.dietaryPreferences}</label><input type="text" value={dietaryPref} onChange={(e) => setDietaryPref(e.target.value)} className="w-full p-3 rounded-xl bg-gray-50 dark:bg-gray-700" /></div>
             </div>
-
-            <div className="space-y-4">
-              <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider">{t.appearance}</h3>
-              <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden">
-                <button 
-                  onClick={() => setColorTheme('green')} 
-                  className={`w-full p-4 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${colorTheme === 'green' ? 'bg-green-50 dark:bg-green-900/10' : ''}`}
-                >
-                   <div className="w-6 h-6 rounded-full bg-green-500"></div>
-                   <span className="font-medium">Green Energy</span>
-                   {colorTheme === 'green' && <span className="ml-auto text-green-600">✓</span>}
-                </button>
-                <div className="h-px bg-gray-100 dark:bg-gray-800"></div>
-                <button 
-                  onClick={() => setColorTheme('blue')} 
-                  className={`w-full p-4 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${colorTheme === 'blue' ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}
-                >
-                   <div className="w-6 h-6 rounded-full bg-blue-500"></div>
-                   <span className="font-medium">Blue Ocean</span>
-                   {colorTheme === 'blue' && <span className="ml-auto text-blue-600">✓</span>}
-                </button>
-                <div className="h-px bg-gray-100 dark:bg-gray-800"></div>
-                <button 
-                  onClick={() => setColorTheme('purple')} 
-                  className={`w-full p-4 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${colorTheme === 'purple' ? 'bg-purple-50 dark:bg-purple-900/10' : ''}`}
-                >
-                   <div className="w-6 h-6 rounded-full bg-purple-500"></div>
-                   <span className="font-medium">Purple Magic</span>
-                   {colorTheme === 'purple' && <span className="ml-auto text-purple-600">✓</span>}
-                </button>
-                 <div className="h-px bg-gray-100 dark:bg-gray-800"></div>
-                <button 
-                  onClick={() => setColorTheme('orange')} 
-                  className={`w-full p-4 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${colorTheme === 'orange' ? 'bg-orange-50 dark:bg-orange-900/10' : ''}`}
-                >
-                   <div className="w-6 h-6 rounded-full bg-orange-500"></div>
-                   <span className="font-medium">Orange Sunset</span>
-                   {colorTheme === 'orange' && <span className="ml-auto text-orange-600">✓</span>}
-                </button>
-              </div>
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl space-y-4">
+               <h3 className="font-bold">{t.bmiCalculator}</h3>
+               <div className="flex gap-2"><input placeholder={t.height} value={userStats.height} onChange={(e) => setUserStats(s => ({...s, height: e.target.value}))} className="w-1/2 p-3 rounded-xl bg-gray-50 dark:bg-gray-700" /><input placeholder={t.weight} value={userStats.weight} onChange={(e) => setUserStats(s => ({...s, weight: e.target.value}))} className="w-1/2 p-3 rounded-xl bg-gray-50 dark:bg-gray-700" /></div>
+               <button onClick={() => { const h = Number(userStats.height)/100; setUserStats(s => ({...s, bmi: Number(s.weight) / (h*h)})); }} className="w-full py-2 bg-gray-100 dark:bg-gray-700 rounded-xl font-bold">{t.calculate}</button>
+               {userStats.bmi && <div className="text-center font-black text-xl">{t.yourBmi}: {userStats.bmi.toFixed(1)}</div>}
             </div>
-
-            <div className="space-y-4">
-               <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider">{t.tools}</h3>
-               <button 
-                 onClick={() => setView('BMI')}
-                 className="w-full p-4 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 font-bold text-left flex justify-between items-center"
-               >
-                 {t.bmiCalculator}
-                 <span>→</span>
-               </button>
-               <button 
-                 onClick={() => setView('REPORT')}
-                 className="w-full p-4 bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 font-bold text-left flex justify-between items-center"
-               >
-                 {t.generateReport}
-                 <span>→</span>
-               </button>
-            </div>
-
-            <div className="pt-6">
-               <button 
-                 onClick={handleClearHistory}
-                 className="w-full p-4 text-red-500 font-bold bg-red-50 dark:bg-red-900/10 rounded-2xl hover:bg-red-100 transition-colors"
-               >
-                 {t.clearHistory}
-               </button>
-            </div>
+            <button onClick={() => setView('REPORT')} className="w-full py-4 bg-primary-600 text-white rounded-2xl font-black">{t.generateReport}</button>
+            <button onClick={() => window.confirm(t.confirmDelete) && setHistory([])} className="w-full py-4 text-red-500 font-bold">{t.clearHistory}</button>
           </div>
         )}
-
-        {view === 'BMI' && (
-           <div className="space-y-6">
-              <h2 className="text-2xl font-black">{t.bmiCalculator}</h2>
-              <div className="p-6 bg-white dark:bg-gray-900 rounded-3xl shadow-sm border border-gray-100 dark:border-gray-800 space-y-4">
-                  <div>
-                    <label className="block text-sm font-bold mb-2">{t.height}</label>
-                    <input 
-                      type="number" 
-                      value={userStats.height}
-                      onChange={(e) => setUserStats(prev => ({...prev, height: e.target.value}))}
-                      className="w-full p-3 bg-gray-100 dark:bg-gray-800 rounded-xl"
-                      placeholder="175"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold mb-2">{t.weight}</label>
-                    <input 
-                      type="number" 
-                      value={userStats.weight}
-                      onChange={(e) => setUserStats(prev => ({...prev, weight: e.target.value}))}
-                      className="w-full p-3 bg-gray-100 dark:bg-gray-800 rounded-xl"
-                      placeholder="70"
-                    />
-                  </div>
-                  <button 
-                    onClick={calculateBMI}
-                    className="w-full py-3 bg-primary-600 text-white rounded-xl font-bold"
-                  >
-                    {t.calculate}
-                  </button>
-
-                  {userStats.bmi && (
-                    <div className="mt-6 text-center p-4 bg-primary-50 dark:bg-primary-900/20 rounded-xl">
-                       <div className="text-sm text-gray-500">{t.yourBmi}</div>
-                       <div className="text-4xl font-black text-primary-600 dark:text-primary-400 my-2">{userStats.bmi.toFixed(1)}</div>
-                       <div className="font-bold">
-                          {userStats.bmi < 18.5 ? t.underweight : userStats.bmi < 25 ? t.normal : userStats.bmi < 30 ? t.overweight : t.obese}
-                       </div>
-                    </div>
-                  )}
-              </div>
-           </div>
-        )}
       </main>
+
+      {isAnalyzing && createPortal(<LoadingOverlay t={t} />, document.body)}
     </div>
   );
 };
